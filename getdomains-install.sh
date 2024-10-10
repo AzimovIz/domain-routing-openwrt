@@ -20,6 +20,13 @@ cat << EOF > /etc/hotplug.d/iface/30-vpnroute
 
 ip route add table vpn default dev awg0
 EOF
+    elif [ "$TUNNEL" == oc ]; then
+cat << EOF > /etc/hotplug.d/iface/30-vpnroute
+#!/bin/sh
+
+sleep 5
+ip route add table vpn default dev vpn-oc0
+EOF
     elif [ "$TUNNEL" == singbox ] || [ "$TUNNEL" == ovpn ] || [ "$TUNNEL" == tun2socks ]; then
 cat << EOF > /etc/hotplug.d/iface/30-vpnroute
 #!/bin/sh
@@ -54,7 +61,8 @@ add_tunnel() {
     echo "5) wgForYoutube"
     echo "6) Amnezia WireGuard"
     echo "7) Amnezia WireGuard For Youtube"
-    echo "8) Skip this step"
+    echo "8) OpenConnect (AnyConnect)"
+    echo "9) Skip this step"
 
     while true; do
     read -r -p '' TUNNEL
@@ -96,6 +104,11 @@ add_tunnel() {
             ;;
 
         8)
+            TUNNEL=oc
+            break
+            ;;
+
+        9)
             echo "Skip"
             TUNNEL=0
             break
@@ -308,6 +321,59 @@ EOF
         uci set network.@amneziawg_awg0[0].allowed_ips='0.0.0.0/0'
         uci set network.@amneziawg_awg0[0].endpoint_port=$AWG_ENDPOINT_PORT
         uci commit
+    fi
+
+    if [ "$TUNNEL" == 'oc' ]; then
+        printf "\033[32;1mConfigure OpenConnect\033[0m\n"
+        if opkg list-installed | grep -q openconnect; then
+            echo "OpenConnect already installed"
+        else
+            echo "Installed openconnect..."
+            opkg install openconnect
+        fi
+
+        route_vpn
+
+        read -r -p "Enter the username:"$'\n' OC_USERNAME
+        read -r -p "Enter the user password:"$'\n' OC_USER_PASSWORD
+        read -r -p "Enter the SHA-1 certificate signature:"$'\n' OC_SHA_1
+
+        while true; do
+            read -r -p "Enter IP address, example 192.168.100.5:"$'\n' OC_IP
+            if echo "$OC_IP" | egrep -oq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+                break
+            else
+                echo "This IP is not valid. Please repeat"
+            fi
+        done
+
+        read -r -p "Enter Endpoint host port [443]:"$'\n' OC_ENDPOINT_PORT
+        OC_ENDPOINT_PORT=${OC_ENDPOINT_PORT:-443}
+        if [ "$OC_ENDPOINT_PORT" = '443' ]; then
+            echo $OC_ENDPOINT_PORT
+        fi
+
+        uci set network.oc0=interface
+        uci set network.oc0.proto='openconnect'
+        uci set network.oc0.vpn_protocol='anyconnect'
+        uci set network.oc0.server=$OC_IP
+        uci set network.oc0.server=$OC_OC_ENDPOINT_PORT
+        uci set network.oc0.serverhash=$OC_SHA_1
+        uci set network.oc0.username=$OC_USERNAME
+        uci set network.oc0.password=$OC_USER_PASSWORD
+        uci set network.oc0.defaultroute='0'
+        uci commit
+    fi
+
+    if [ "$TUNNEL" == 'ovpn' ]; then
+        if opkg list-installed | grep -q openvpn-openssl; then
+            echo "OpenVPN already installed"
+        else
+            echo "Installed openvpn"
+            opkg install openvpn-openssl
+        fi
+        printf "\033[32;1mConfigure route for OpenVPN\033[0m\n"
+        route_vpn
     fi
 
 }
